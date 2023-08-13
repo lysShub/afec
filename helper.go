@@ -3,7 +3,6 @@ package afec
 import (
 	"errors"
 
-	"github.com/lysShub/afec/fec"
 	"github.com/tmthrgd/go-memset"
 )
 
@@ -20,31 +19,33 @@ type group struct {
 	parityShards        []byte
 	groupDataLen, count uint8
 	groupInc            uint8
-	finid               bool
+	finied              bool
 }
 
-func (g *group) Do(u Upack) (rec bool) {
-	if g.groupInc != u.GroupInc() {
+func (g *group) Do(u Pack) (rec bool) {
+	// 将增加组路由
+	if g.groupInc != u.GroupIdx() {
 		g.reset()
-		g.groupInc = u.GroupInc()
+		g.groupInc = u.GroupIdx()
 		g.groupDataLen = u.GroupDataLen()
 	}
 	if len(u) > cap(g.lossShard) {
 		g.grow(cap(g.lossShard) - len(u))
 	}
 
-	if u.Flag() == DataGroupTail {
+	// TODO: 通过GroupDataLen判断
+	if u.Flag() == 0 /* DataGroupTail */ { // use counter
 		n := copy(g.parityShards[0:cap(g.parityShards)], u)
 		g.parityShards = g.parityShards[:n]
 	} else {
-		g.lossShard = fec.Xor(u, g.lossShard)
+		g.lossShard = xor(u, g.lossShard)
 	}
 	g.count += 1
 
 	if g.count == g.groupDataLen &&
 		len(g.parityShards) != 0 {
 
-		g.lossShard = fec.Xor(u, g.lossShard)
+		g.lossShard = xor(u, g.lossShard)
 		n := trim(g.lossShard)
 		g.lossShard = g.lossShard[:n]
 		return true
@@ -52,13 +53,13 @@ func (g *group) Do(u Upack) (rec bool) {
 	return false
 }
 
-func (g *group) Do1(u Upack) (rec, skip bool) {
-	if g.groupInc != u.GroupInc() {
+func (g *group) Do1(u Pack) (rec, skip bool) {
+	if g.groupInc != u.GroupIdx() {
 		g.reset()
-		g.groupInc = u.GroupInc()
+		g.groupInc = u.GroupIdx()
 		g.groupDataLen = u.GroupDataLen()
 	} else {
-		if g.finid {
+		if g.finied {
 			return false, true
 		}
 	}
@@ -66,20 +67,20 @@ func (g *group) Do1(u Upack) (rec, skip bool) {
 		g.grow(cap(g.lossShard) - len(u))
 	}
 
-	if u.Flag() == DataGroupTail {
+	if u.Flag() == 0 /* DataGroupTail */ { // use counter
 		n := copy(g.parityShards[0:cap(g.parityShards)], u)
 		g.parityShards = g.parityShards[:n]
 		skip = true
 	} else {
-		g.lossShard = fec.Xor(u, g.lossShard)
+		g.lossShard = xor(u, g.lossShard)
 	}
 	g.count += 1
 
 	if g.count == g.groupDataLen {
-		g.finid = true
+		g.finied = true
 
 		if len(g.parityShards) != 0 {
-			g.lossShard = fec.Xor(g.lossShard, g.parityShards)
+			g.lossShard = xor(g.lossShard, g.parityShards)
 			n := trim(g.lossShard)
 			g.lossShard = g.lossShard[:n]
 			rec = true
@@ -89,7 +90,7 @@ func (g *group) Do1(u Upack) (rec, skip bool) {
 	return rec, skip
 }
 
-func (g *group) Read(b Upack) (int, error) {
+func (g *group) Read(b Pack) (int, error) {
 	if len(g.lossShard) == 0 {
 		return 0, nil
 	} else {
@@ -104,7 +105,7 @@ func (g *group) Read(b Upack) (int, error) {
 }
 
 func (g *group) reset() {
-	g.finid = false
+	g.finied = false
 	memset.Memset(g.parityShards, 0)
 	g.parityShards = g.parityShards[:0]
 	memset.Memset(g.lossShard, 0)
@@ -183,10 +184,32 @@ func (s *Statistic) PL() float64 {
 	return s.prevPL
 }
 
-func min(x, y uint8) uint8 {
-	if x > y {
-		return y
-	} else {
-		return x
-	}
+// cycle counter
+type cnt[T uint8 | int] struct {
+	val T
+	max T
+}
+
+func NewInc[T uint8 | int](max T) *cnt[T] {
+	return &cnt[T]{max: max}
+}
+
+func (i *cnt[T]) Val() T {
+	return i.val % i.max
+}
+
+func (i *cnt[T]) Inc() (old T) {
+	old = i.Val()
+	i.val = (i.val + 1) % i.max
+	return
+}
+
+func (i *cnt[T]) Dec() (old T) {
+	old = i.Val()
+	i.val = (i.val - 1) % i.max
+	return
+}
+
+func (i *cnt[T]) Set(v T) {
+	i.val = v
 }
