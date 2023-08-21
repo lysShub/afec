@@ -1,7 +1,6 @@
 package afec
 
 import (
-	"encoding/binary"
 	"testing"
 )
 
@@ -29,22 +28,14 @@ func TestXor(t *testing.T) {
 	t.Log(recover)
 }
 
-func TestXxx(t *testing.T) {
-	// tzc: tail zero compression
+func TestSwap(t *testing.T) {
+	{
+		var a = []byte{1, 2, 3}
+		var b = []byte{1, 1, 1, 1}
 
-	// 结尾为N个0, 用xx0表示
-	// Deprecated: 解码的时候失灵
-}
+		a1, b1 := swap(a, b)
 
-func encode(b []byte) []byte {
-	zeros := tailZeros(b)
-
-	if zeros == 0 {
-		return b
-	} else {
-		i := len(b) - zeros
-
-		binary.LittleEndian.PutUint16(b[i:], uint16(zeros))
-		return b[:i+2]
+		t.Log(a1)
+		t.Log(b1)
 	}
 }
