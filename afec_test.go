@@ -1,52 +1,112 @@
 package afec
 
 import (
-	"net"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
-func TestSample(t *testing.T) {
-	c, s := NewMockUDPConn(func(data []byte) time.Duration {
-		return 0
-	})
-	var algo Algo = func(pl float64) (dataBlocks uint8, parityBlocks uint8) {
-		return 2, 1
+func Test_Correct(t *testing.T) {
+	type suit struct {
+		send  [][]byte
+		recv  [][]byte
+		delay []time.Duration
+		algo  Algo
+		msg   string
 	}
 
-	go func(rawConn net.Conn, algo Algo) { // sender
-		conn := NewAfec(rawConn, algo)
+	var tail_zero_suits = []suit{
+		{
+			send: [][]byte{
+				{1, 2, 3},
+				{1},
+				{2, 3, 0, 0},
+			},
+			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
+			msg:  "test-zero-tail-case1",
+		},
+		{
+			send: [][]byte{
+				{1, 2, 3, 0},
+				{1, 0},
+				{2, 3, 0, 0},
+			},
+			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
+			msg:  "test-zero-tail-case2",
+		},
+		{
+			send: [][]byte{
+				{1, 2, 3},
+				{1},
+				{0, 0, 0, 0},
+			},
+			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
+			msg:  "test-zero-pack-case1",
+		},
+		{
+			send: [][]byte{
+				{0, 0, 0},
+				{0},
+				{0, 0, 0, 0},
+			},
+			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
+			msg:  "test-zero-pack-case1",
+		},
+	}
 
-		conn.Write([]byte{1, 1, 1, 1})
-		conn.Write([]byte{2, 2})
-		conn.Write([]byte{3, 3, 0, 0})
-	}(c, algo)
-
-	go func(rawCon net.Conn, algo Algo) { // recver
-		conn := NewAfec(rawCon, algo)
-
-		var b = make([]byte, 1532)
-		for {
-			n, err := conn.Read(b)
-			t.Log(n, err)
+	suits := []suit{}
+	suits = append(suits, tail_zero_suits...)
+	for _, suit := range suits {
+		if suit.recv == nil {
+			suit.recv = suit.send
 		}
-	}(s, algo)
 
-	time.Sleep(time.Minute)
+		c, s := NewMockUDPConn(func() func() time.Duration {
+			var i int
+			return func() time.Duration {
+				i++
+				if i > len(suit.delay) {
+					return 0
+				}
+				return suit.delay[i-1]
+			}
+		}())
+
+		go func() { // sender
+			conn := NewAfec(c, suit.algo)
+			for _, p := range suit.send {
+				_, err := conn.Write(p)
+				require.NoError(t, err)
+			}
+		}()
+
+		{ // recv
+			conn := NewAfec(s, suit.algo)
+
+			var b = make([]byte, 1532)
+			for _, r := range suit.recv {
+				b = b[:cap(b)]
+				n, err := conn.Read(b)
+				require.NoError(t, err)
+				require.Equal(t, b[:n], r)
+			}
+		}
+	}
 }
 
-func TestMock(t *testing.T) {
-	c, s := NewMockUDPConn(func(data []byte) time.Duration {
-		return 0
-	})
+// func TestMock(t *testing.T) {
+// 	c, s := NewMockUDPConn(func(data []byte) time.Duration {
+// 		return 0
+// 	})
 
-	go func() {
+// 	go func() {
 
-		c.Write([]byte{1, 2, 3, 1, 2, 3, 1, 2, 3})
+// 		c.Write([]byte{1, 2, 3, 1, 2, 3, 1, 2, 3})
 
-	}()
+// 	}()
 
-	b := make([]byte, 6)
-	n, err := s.Read(b)
-	t.Log(n, err)
-}
+// 	b := make([]byte, 6)
+// 	n, err := s.Read(b)
+// 	t.Log(n, err)
+// }

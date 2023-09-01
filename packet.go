@@ -1,8 +1,8 @@
 package afec
 
 const (
-	PackHdrSize  = 4
-	MiniPackSize = PackHdrSize + 1
+	HdrSize      = 4
+	MiniPackSize = HdrSize + 1
 )
 
 type Pack []byte
@@ -41,46 +41,46 @@ func (p Pack) Valid() bool {
 }
 
 func (p Pack) GroupDataLen() uint8 {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	return p[len(p)-4]
 }
 
 func (p Pack) SetGroupDataLen(n uint8) {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	p[len(p)-4] = n
 }
 
 func (p Pack) GroupIdx() uint8 {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	return p[len(p)-3]
 }
 
 func (p Pack) SetGroupIdx(u uint8) {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	p[len(p)-3] = u
 }
 
 func (p Pack) PL() Float8 {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	return Float8(p[len(p)-2])
 }
 
 func (p Pack) SetPL(pl float64) {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	p[len(p)-2] = byte(NewFloat8(pl))
 }
 
 func (p Pack) Flag() Flag {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	return Flag(p[len(p)-1])
 }
 
 func (p Pack) SetFlag(flag Flag) {
-	_ = p[PackHdrSize]
+	_ = p[HdrSize]
 	p[len(p)-1] = byte(flag)
 }
 
 // Xor src xor to p
 func (p Pack) Xor(src Pack) Pack {
-	return xor(p, src[:len(src)-PackHdrSize+1])
+	return xor(p, src[:len(src)-HdrSize+1])
 }

@@ -107,8 +107,8 @@ func (g *group) Read(b Pack) (int, error) {
 func (g *group) reset() {
 	g.finied = false
 	memset.Memset(g.parityShards, 0)
-	g.parityShards = g.parityShards[:0]
 	memset.Memset(g.lossShard, 0)
+	g.parityShards = g.parityShards[:0]
 	g.lossShard = g.lossShard[:0]
 }
 

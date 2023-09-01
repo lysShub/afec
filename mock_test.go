@@ -13,7 +13,7 @@ import (
 
 // Mock UDP link, can mock delay、loss package、reverse.etc, by set pack transmit period.
 // delay larger than 5s mean loss pack
-func NewMockUDPConn(delayFn func(data []byte) time.Duration, mss ...int) (c, s net.Conn) {
+func NewMockUDPConn(delayFn func() time.Duration, mss ...int) (c, s net.Conn) {
 	var timeout = time.Second * 5
 
 	var m int = 64
@@ -52,7 +52,7 @@ type simplexUDPLink struct {
 
 	timeout time.Duration
 
-	delayFn func(data []byte) time.Duration
+	delayFn func() time.Duration
 
 	closed bool
 	m      *sync.Mutex
@@ -106,7 +106,7 @@ func (l *simplexUDPLink) Write(b []byte) (n int, err error) {
 		return 0, errClosed
 	}
 
-	if D := l.delayFn(b); D > l.timeout {
+	if D := l.delayFn(); D > l.timeout {
 		l.m.Unlock()
 		return len(b), nil // loss pack
 	} else {
@@ -167,7 +167,7 @@ func (l *simplexUDPLink) SetWriteDeadline(t time.Time) error { return nil }
 *
  */
 func Test_MockUDPConn_Base(t *testing.T) {
-	var f func(data []byte) time.Duration = func(data []byte) time.Duration { return 0 }
+	var f = func() time.Duration { return 0 }
 
 	s, r := NewMockUDPConn(f)
 	go func() { // Ping-Pong
@@ -196,14 +196,16 @@ func Test_MockUDPConn_Base(t *testing.T) {
 }
 
 func Test_MockUDPConn_Delay(t *testing.T) {
-	var f func(data []byte) time.Duration = func(data []byte) time.Duration {
-		return time.Millisecond * time.Duration(int(data[0])*10)
+	i := 0
+
+	var f = func() time.Duration {
+		return time.Millisecond * time.Duration(int(i)*10)
 	}
 
 	s, c := NewMockUDPConn(f)
 	var start = time.Now()
 
-	for i := 0; i < 32; i++ {
+	for ; i < 32; i++ {
 		c.Write([]byte{byte(i)})
 	}
 
@@ -230,7 +232,7 @@ func Test_MockUDPConn_Delay(t *testing.T) {
 
 func Test_MockUDPConn_Reverse(t *testing.T) {
 	var i = 31
-	var f func(data []byte) time.Duration = func(data []byte) time.Duration {
+	var f = func() time.Duration {
 		var r = time.Millisecond * 100 * time.Duration(i)
 		i--
 		return r
@@ -261,7 +263,7 @@ func Test_MockUDPConn_Reverse(t *testing.T) {
 
 func Test_MockUDPConn_LossPacket(t *testing.T) {
 	var i = 31
-	var f func(data []byte) time.Duration = func(data []byte) time.Duration {
+	var f = func() time.Duration {
 		var r = time.Millisecond * 100 * time.Duration(i)
 		if i%5 == 0 {
 			r = time.Minute

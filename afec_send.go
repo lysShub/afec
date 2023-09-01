@@ -8,9 +8,6 @@ type send struct {
 
 	groupIdx uint8
 
-	// parityBlocks==0, dataBlocks只能等于1
-	// parityBlocks==1, dataBlocks属于(1, 63]
-	// parityBlocks> 1, dataBlocks只能等于1
 	dataBlocks, parityBlocks uint8
 	sendLen                  uint8
 
@@ -51,7 +48,7 @@ func (s *send) Write(b []byte) (n int, err error) {
 	pl := s.pl()
 	var p Pack
 	{
-		if n := len(b) + PackHdrSize; n > cap(b) {
+		if n := len(b) + HdrSize; n > cap(b) {
 			p = make([]byte, n)
 			copy(p, b)
 		} else {

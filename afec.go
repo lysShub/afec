@@ -7,6 +7,11 @@ import (
 )
 
 // Algo a-fec algorithm, dataBlocks can't be 0.
+//
+//	limit：
+//	parityBlocks==0, dataBlocks == 1
+//	parityBlocks==1, dataBlocks ∈ (1, 63]
+//	parityBlocks> 1, dataBlocks 1
 type Algo func(pl float64) (dataBlocks, parityBlocks uint8)
 
 type afec struct {

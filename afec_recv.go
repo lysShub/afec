@@ -9,7 +9,7 @@ type recv struct {
 	*afec
 
 	groups        [rgroups]groups
-	directReadIdx int8 // >=0 valid
+	directReadIdx int8 // if >=0 valid
 }
 
 func newRecv(a *afec) recv {
@@ -18,15 +18,15 @@ func newRecv(a *afec) recv {
 	}
 }
 
-func (f *recv) Read(b []byte) (n int, err error) {
-	if f.directReadIdx > 0 {
-		idx := f.directReadIdx
-		f.directReadIdx = -1
-		return f.groups[idx].readDirect(b)
+func (r *recv) Read(b []byte) (n int, err error) {
+	if r.directReadIdx > 0 {
+		idx := r.directReadIdx
+		r.directReadIdx = -1
+		return r.groups[idx].readDirect(b)
 	}
 
 	for {
-		n, err = f.rawConn.Read(b)
+		n, err = r.rawConn.Read(b)
 		if err != nil {
 			return 0, err
 		} else if n < MiniPackSize {
@@ -35,49 +35,53 @@ func (f *recv) Read(b []byte) (n int, err error) {
 		}
 		p := Pack(b[:n])
 		gidx := p.GroupIdx()
-		xorLen := len(p) - PackHdrSize + 1
-		g := &f.groups[gidx%rgroups]
+		g := &r.groups[gidx%rgroups]
 
 		if g.groupIdx != gidx {
+			// belong a new group
+
+			// todo: reconstruct and update pl by packet-len
 			if g.needReconstruct() {
-				f.directReadIdx = int8(gidx % rgroups)
+				r.directReadIdx = int8(gidx % rgroups)
 
 				return g.reconstruct(b)
 			} else {
-				f.lossCnt.Add(uint32(g.dataBlocks - g.recvLen))
+				if debug && g.recvLen > g.groupLen {
+					panic(int(g.groupLen) - int(g.recvLen))
+				}
+				r.lossCnt.Add(uint32(g.groupLen - g.recvLen))
 
 				g.groupIdx = gidx
-				g.parityBlock = cpyclr(p[:xorLen], g.parityBlock)
+				g.parityBlock = cpyclr(p[:len(p)-HdrSize+1], g.parityBlock)
 				if !p.Flag().IsParity() {
 					g.recvLen = 1
-					g.dataBlocks = p.GroupDataLen()
+					g.groupLen = p.GroupDataLen()
 
-					return len(p) - PackHdrSize, nil
+					return len(p) - HdrSize, nil
 				}
 			}
 		} else {
-			// the block alone same group
-			g.parityBlock = g.parityBlock.Xor(p[:xorLen])
+			g.parityBlock = g.parityBlock.Xor(p)
 
 			if !p.Flag().IsParity() {
 				g.recvLen += 1
 
-				return len(p) - PackHdrSize, nil
+				return len(p) - HdrSize, nil
 			}
 		}
 	}
 }
 
 type groups struct {
-	groupIdx   uint8
-	dataBlocks uint8
-	recvLen    uint8
+	groupIdx uint8
+	groupLen uint8
+	recvLen  uint8
 
 	parityBlock Pack
 }
 
 func (g *groups) needReconstruct() bool {
-	return g.recvLen+1 == g.dataBlocks
+	return g.recvLen+1 == g.groupLen
 }
 
 func (g *groups) reconstruct(p Pack) (n int, err error) {
