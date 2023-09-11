@@ -4,15 +4,20 @@ import (
 	"testing"
 	"time"
 
+	"bou.ke/monkey"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_Correct(t *testing.T) {
+func Test_Base(t *testing.T) {
+	monkey.Patch((*afec).fec, func(_ *afec, pl float64) (dataBlocks, parityBlocks uint8) {
+		return 1, 1
+	})
+	require.True(t, debug)
+
 	type suit struct {
 		send  [][]byte
 		recv  [][]byte
 		delay []time.Duration
-		algo  Algo
 		msg   string
 	}
 
@@ -23,8 +28,7 @@ func Test_Correct(t *testing.T) {
 				{1},
 				{2, 3, 0, 0},
 			},
-			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
-			msg:  "test-zero-tail-case1",
+			msg: "test-zero-tail-case1",
 		},
 		{
 			send: [][]byte{
@@ -32,8 +36,7 @@ func Test_Correct(t *testing.T) {
 				{1, 0},
 				{2, 3, 0, 0},
 			},
-			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
-			msg:  "test-zero-tail-case2",
+			msg: "test-zero-tail-case2",
 		},
 		{
 			send: [][]byte{
@@ -41,8 +44,7 @@ func Test_Correct(t *testing.T) {
 				{1},
 				{0, 0, 0, 0},
 			},
-			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
-			msg:  "test-zero-pack-case1",
+			msg: "test-zero-pack-case3",
 		},
 		{
 			send: [][]byte{
@@ -50,14 +52,35 @@ func Test_Correct(t *testing.T) {
 				{0},
 				{0, 0, 0, 0},
 			},
-			algo: func(pl float64) (dataBlocks, parityBlocks uint8) { return 2, 1 },
-			msg:  "test-zero-pack-case1",
+			msg: "test-zero-pack-case4",
+		},
+	}
+
+	var reconstruct_case = []suit{
+		{
+			send: [][]byte{
+				{0, 0, 0},
+				{1}, {2}, {3},
+				{0, 0, 0, 0},
+			},
+			recv: [][]byte{
+				{1}, {2}, {3},
+				{0, 0, 0},
+				{0, 0, 0, 0},
+			},
+			delay: []time.Duration{time.Minute},
+			msg:   "test-reconstruct-case1",
 		},
 	}
 
 	suits := []suit{}
 	suits = append(suits, tail_zero_suits...)
+	suits = append(suits, reconstruct_case...)
 	for _, suit := range suits {
+		if suit.msg == `test-reconstruct-case1` {
+			print()
+		}
+
 		if suit.recv == nil {
 			suit.recv = suit.send
 		}
@@ -74,39 +97,24 @@ func Test_Correct(t *testing.T) {
 		}())
 
 		go func() { // sender
-			conn := NewAfec(c, suit.algo)
+			conn := NewAfec(c)
 			for _, p := range suit.send {
 				_, err := conn.Write(p)
 				require.NoError(t, err)
 			}
 		}()
 
-		{ // recv
-			conn := NewAfec(s, suit.algo)
+		{ // recver
+			conn := NewAfec(s)
 
 			var b = make([]byte, 1532)
 			for _, r := range suit.recv {
-				b = b[:cap(b)]
+				b = b[:1500]
 				n, err := conn.Read(b)
 				require.NoError(t, err)
 				require.Equal(t, b[:n], r)
+				require.True(t, isEmpty(b[n:cap(b)]))
 			}
 		}
 	}
 }
-
-// func TestMock(t *testing.T) {
-// 	c, s := NewMockUDPConn(func(data []byte) time.Duration {
-// 		return 0
-// 	})
-
-// 	go func() {
-
-// 		c.Write([]byte{1, 2, 3, 1, 2, 3, 1, 2, 3})
-
-// 	}()
-
-// 	b := make([]byte, 6)
-// 	n, err := s.Read(b)
-// 	t.Log(n, err)
-// }

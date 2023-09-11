@@ -3,6 +3,8 @@ package afec
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFloat8(t *testing.T) {
@@ -22,16 +24,28 @@ func TestFloat8(t *testing.T) {
 		{math.NaN(), 0},
 		{math.Inf(-1), 0},
 		{math.Inf(1), 0.9975},
+		{0.082, 0.082},
 	}
 
-	for _, s := range suits {
-		f := NewFloat8(s.data)
-		r := f.Get()
+	for i, s := range suits {
+		f := newFloat8(s.data)
+		r := f.get()
 
-		delta := math.Abs(r - s.want)
+		require.InDelta(t, s.want, r, prec, i)
+	}
+}
 
-		if delta > 1-0.9975 {
-			t.Errorf("data=%v, want=%v, got=%v, delta=%v", s.data, s.want, r, delta)
-		}
+func BenchmarkEncode(b *testing.B) {
+
+	f8 := newFloat8(0)
+	for i := 0; i < b.N; i++ {
+		f8.put(0.832)
+	}
+}
+
+func BenchmarkDecode(b *testing.B) {
+	f8 := newFloat8(0.832)
+	for i := 0; i < b.N; i++ {
+		f8.get()
 	}
 }

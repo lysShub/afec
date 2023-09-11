@@ -1,36 +1,32 @@
 package afec
 
-import (
-	"math"
-)
+type float8 uint8
 
-// Float8 stores [0,1) in 8 bits
-//
-// map to f(x) = e^(x) (x in (-6,0])
-type Float8 uint8
+// float8(0b10000000).get()
+const prec = float64(0.0040)
 
-const step = 6.0 / 256
-
-func NewFloat8(val float64) Float8 {
-	var r Float8
-	r.Put(val)
+func newFloat8(v float64) (r float8) {
+	r.put(v)
 	return r
 }
 
-func (f *Float8) Put(val float64) {
-	const stepE = 1 / step
-	if val > 0.9975 {
-		val = 0.9975
-	} else if val < 0 {
-		val = 0
+func (f *float8) put(v float64) {
+	var r float8
+	for i := 0; i < 8; i++ {
+		v = v * 2
+		if v >= 1 {
+			r |= float8(1) << i
+			v = v - 1
+		}
 	}
-
-	val = 1 - val
-
-	val = -math.Log(val) * stepE
-	*f = Float8(val)
+	*f = r
 }
 
-func (f Float8) Get() float64 {
-	return 1 - math.Pow(math.E, -float64(f)*step)
+func (f float8) get() (r float64) {
+	for i := 0; i < 8; i++ {
+		if f&(float8(1)<<i) != 0 {
+			r += float64(1) / (float64(uint(1) << (i + 1)))
+		}
+	}
+	return r
 }

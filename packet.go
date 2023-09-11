@@ -1,7 +1,7 @@
 package afec
 
 const (
-	HdrSize      = 4
+	HdrSize      = 3
 	MiniPackSize = HdrSize + 1
 )
 
@@ -17,70 +17,84 @@ type Pack []byte
 		}
 
 		Tailer: {
-			Group-Len(1B)     : data block length in a group
 			Group-Idx(1B)     : group id, dentify the group, cycle 0-255
 			Lossy-Perc(1B)    : loss percentage peer link
-			Group-Flag(1B)    : flag, always not 0
+			Group-Len(6b)     : data block length in a group
+			Block-Type(1b)    : block type, 1 data-block, 0 parity-block
+			Tail-Mark(1b)     : tail mark, data-block alway 1 （似乎是无效的，因为 Block-Type）
 		}
 	}
+
+	异或时包括包头
+	发送Parity时重置包头
+	恢复后Block将包括包头
+	（
+	  恢复的Block头的参数是不可靠的、因为Parity主动重
+	  置包头的值，只需确定最后一位不为0即可
+	 ）
 */
 
-type Flag uint8
-
-func (f Flag) IsParity() bool {
-	return f == ParityBlock
+func (p Pack) valid() bool {
+	return len(p) >= MiniPackSize && p[len(p)-1]&0b10000000 != 0
 }
 
-const (
-	_ Flag = iota
-	ParityBlock
-)
-
-func (p Pack) Valid() bool {
-	return len(p) >= MiniPackSize
-}
-
-func (p Pack) GroupDataLen() uint8 {
+func (p Pack) clearTail() {
 	_ = p[HdrSize]
-	return p[len(p)-4]
+	p[len(p)-3], p[len(p)-2], p[len(p)-1] = 0, 0, 0
 }
 
-func (p Pack) SetGroupDataLen(n uint8) {
-	_ = p[HdrSize]
-	p[len(p)-4] = n
-}
-
-func (p Pack) GroupIdx() uint8 {
+func (p Pack) gid() uint8 {
 	_ = p[HdrSize]
 	return p[len(p)-3]
 }
 
-func (p Pack) SetGroupIdx(u uint8) {
+// setGid set group id
+func (p Pack) setGid(u uint8) {
 	_ = p[HdrSize]
 	p[len(p)-3] = u
 }
 
-func (p Pack) PL() Float8 {
+func (p Pack) pl() float8 {
 	_ = p[HdrSize]
-	return Float8(p[len(p)-2])
+	return float8(p[len(p)-2])
 }
 
-func (p Pack) SetPL(pl float64) {
+func (p Pack) setPL(pl float64) {
 	_ = p[HdrSize]
-	p[len(p)-2] = byte(NewFloat8(pl))
+	p[len(p)-2] = byte(newFloat8(pl))
 }
 
-func (p Pack) Flag() Flag {
+func (p Pack) glen() uint8 {
 	_ = p[HdrSize]
-	return Flag(p[len(p)-1])
+	return p[len(p)-1] & 0b00111111
 }
 
-func (p Pack) SetFlag(flag Flag) {
+// setGlen set group data block len
+func (p Pack) setGlen(n uint8) {
 	_ = p[HdrSize]
-	p[len(p)-1] = byte(flag)
+	p[len(p)-1] = (p[len(p)-1] & 0b11000000) + (n & 0b00111111)
 }
 
-// Xor src xor to p
-func (p Pack) Xor(src Pack) Pack {
-	return xor(p, src[:len(src)-HdrSize+1])
+// setDataType set block type data-block
+func (p Pack) setDataType() {
+	_ = p[HdrSize]
+	// set tail-mark same time
+	p[len(p)-1] = (p[len(p)-1] | 0b11000000)
+}
+
+// setParityType set block type prity-block
+func (p Pack) setParityType() {
+	_ = p[HdrSize]
+	p[len(p)-1] = (p[len(p)-1] & 0b10111111)
+}
+
+func (p Pack) isDataType() bool {
+	_ = p[HdrSize]
+	return p[len(p)-1]&0b01000000 != 0
+}
+
+func (p Pack) grow(to int) Pack {
+	tmp := make([]byte, to)
+	copy(tmp, p)
+	return Pack(tmp)
 }

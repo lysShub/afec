@@ -1,6 +1,8 @@
 package afec
 
-import "github.com/tmthrgd/go-memset"
+import (
+	"fmt"
+)
 
 // xor a[i] = a[i] xor b[i]
 //
@@ -12,57 +14,79 @@ func xor(a, b []byte) []byte {
 			copy(tmp, a)
 			a = tmp[:len(b)]
 		} else {
-			memset.Memset(a[len(a):len(b)], 0)
+			clear(a[len(a):len(b)])
 			a = a[:len(b)]
 		}
+	}
+
+	rawxor(a, b)
+	return a
+}
+
+// rawxor a[i] = a[i] ^ b[i]
+func rawxor(a, b []byte) {
+	if debug && len(a) != len(b) {
+		panic(fmt.Errorf("%d %d", len(a), len(b)))
 	}
 
 	for i, v := range b {
 		a[i] = a[i] ^ v
 	}
-	return a
 }
 
 func swap(a, b []byte) ([]byte, []byte) {
 	na, nb := len(a), len(b)
 	if na != nb {
-		delta := na - nb
-		if delta > 0 {
-			if nb+delta > cap(b) {
-				tmp := make([]byte, nb+delta)
-				copy(tmp, b)
-				b = tmp[:nb]
+		n := max(na, nb)
+		if na < n {
+			if cap(a) >= n {
+				a = a[:n]
 			} else {
-				memset.Memset(b[nb:nb+delta], 0)
-			}
-			b = b[:na]
-		} else {
-			delta = -delta
-			if na+delta > cap(a) {
-				tmp := make([]byte, na+delta)
+				tmp := make([]byte, n)
 				copy(tmp, a)
-				a = tmp[:nb]
-			} else {
-				memset.Memset(a[na:na+delta], 0)
+				a = tmp
 			}
-			a = a[:nb]
+		} else {
+			if cap(b) >= n {
+				b = b[:n]
+			} else {
+				tmp := make([]byte, n)
+				copy(tmp, b)
+				b = tmp
+			}
 		}
 	}
 
-	a = xor(a, b)
-	b = xor(b, a)
-	a = xor(a, b)
+	rawxor(a, b)
+	rawxor(b, a)
+	rawxor(a, b)
 	return a[:nb], b[:na]
 }
 
-// cpyclr, copy src to dst
+func rawswap(a, b []byte) {
+	rawxor(a, b)
+	rawxor(b, a)
+	rawxor(a, b)
+}
+
+// cpyclr  copy src to dst
 func cpyclr(src, dst []byte) []byte {
 	n := len(src)
 	if cap(dst) < n {
 		dst = make([]byte, cap(src))
 	} else if len(dst) > n {
-		memset.Memset(dst[n:], 0)
+		clear(dst[n:])
 	}
 	copy(dst[:n], src)
 	return dst[:n]
+}
+
+func grow(p []byte, to int) []byte {
+	if cap(p) > to {
+		return p[:to]
+	} else {
+		tmp := make([]byte, to)
+		copy(tmp, p)
+		return tmp
+	}
 }

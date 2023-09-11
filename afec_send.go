@@ -19,19 +19,11 @@ func newSend(a *afec) send {
 		afec:     a,
 		groupIdx: 1,
 	}
-	s.dataBlocks, s.parityBlocks = s.algo(0)
+	s.dataBlocks, s.parityBlocks = a.fec(0)
 	return s
 }
 
-func (s *send) next(dataBlocks, parityBlocks uint8) {
-	if parityBlocks > dataBlocks {
-		if parityBlocks%dataBlocks > 0 {
-			parityBlocks = 1
-		}
-		parityBlocks += parityBlocks / dataBlocks
-		dataBlocks = 1
-	}
-
+func (s *send) nextGroup(dataBlocks, parityBlocks uint8) {
 	s.groupIdx++
 	s.dataBlocks, s.parityBlocks = dataBlocks, parityBlocks
 	s.sendLen = 0
@@ -46,26 +38,18 @@ func (s *send) Write(b []byte) (n int, err error) {
 	}
 
 	pl := s.pl()
-	var p Pack
+	var p Pack = b[:len(b)+HdrSize]
 	{
-		if n := len(b) + HdrSize; n > cap(b) {
-			p = make([]byte, n)
-			copy(p, b)
-		} else {
-			p = b[:n]
-		}
-
-		p.SetGroupDataLen(s.dataBlocks)
-		p.SetGroupIdx(s.groupIdx)
-		p.SetPL(pl)
-		p.SetFlag(0)
+		p.setGid(s.groupIdx)
+		p.setPL(pl)
+		p.setGlen(s.dataBlocks)
+		p.setDataType()
 		if s.parityBlocks > 0 {
-			s.parityBlock = s.parityBlock.Xor(p)
+			s.parityBlock = xor(s.parityBlock, p)
 		}
 		s.sendLen++
 	}
 
-	// 可以拆分
 	n, err = s.rawConn.Write(p)
 	if err != nil {
 		return 0, err
@@ -73,20 +57,19 @@ func (s *send) Write(b []byte) (n int, err error) {
 
 	if s.tail() {
 		if s.parityBlocks > 0 {
-			// pb := f.parityBlock[:len(f.parityBlock)+3]
-			pb := append(s.parityBlock, 0, 0, 0)
-			pb.SetGroupIdx(s.groupIdx)
-			pb.SetPL(pl)
-			pb.SetFlag(ParityBlock)
+			s.parityBlock.setGid(s.groupIdx)
+			s.parityBlock.setPL(pl)
+			s.parityBlock.setGlen(s.dataBlocks)
+			s.parityBlock.setParityType()
 			for i := uint8(0); i < s.parityBlocks; i++ {
-				n, err = s.rawConn.Write(pb)
+				n, err = s.rawConn.Write(s.parityBlock)
 				if err != nil {
 					return 0, err
 				}
 			}
 		}
 
-		s.next(s.algo(pl))
+		s.nextGroup(s.fec(pl))
 	}
 
 	return n, nil

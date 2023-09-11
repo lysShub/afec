@@ -2,19 +2,17 @@ package afec
 
 import (
 	"errors"
-
-	"github.com/tmthrgd/go-memset"
 )
 
 const W = 64
 
-type Ring [W]group
+type Ring [W]group_old
 
-func (r *Ring) GetGroup(ghash uint8) *group {
+func (r *Ring) GetGroup(ghash uint8) *group_old {
 	return &r[ghash%W]
 }
 
-type group struct {
+type group_old struct {
 	lossShard           []byte
 	parityShards        []byte
 	groupDataLen, count uint8
@@ -22,19 +20,18 @@ type group struct {
 	finied              bool
 }
 
-func (g *group) Do(u Pack) (rec bool) {
+func (g *group_old) Do(u Pack) (rec bool) {
 	// 将增加组路由
-	if g.groupInc != u.GroupIdx() {
+	if g.groupInc != u.gid() {
 		g.reset()
-		g.groupInc = u.GroupIdx()
-		g.groupDataLen = u.GroupDataLen()
+		g.groupInc = u.gid()
+		g.groupDataLen = u.glen()
 	}
 	if len(u) > cap(g.lossShard) {
 		g.grow(cap(g.lossShard) - len(u))
 	}
 
-	// TODO: 通过GroupDataLen判断
-	if u.Flag() == 0 /* DataGroupTail */ { // use counter
+	if !u.isDataType() {
 		n := copy(g.parityShards[0:cap(g.parityShards)], u)
 		g.parityShards = g.parityShards[:n]
 	} else {
@@ -53,11 +50,11 @@ func (g *group) Do(u Pack) (rec bool) {
 	return false
 }
 
-func (g *group) Do1(u Pack) (rec, skip bool) {
-	if g.groupInc != u.GroupIdx() {
+func (g *group_old) Do1(u Pack) (rec, skip bool) {
+	if g.groupInc != u.gid() {
 		g.reset()
-		g.groupInc = u.GroupIdx()
-		g.groupDataLen = u.GroupDataLen()
+		g.groupInc = u.gid()
+		g.groupDataLen = u.glen()
 	} else {
 		if g.finied {
 			return false, true
@@ -67,7 +64,7 @@ func (g *group) Do1(u Pack) (rec, skip bool) {
 		g.grow(cap(g.lossShard) - len(u))
 	}
 
-	if u.Flag() == 0 /* DataGroupTail */ { // use counter
+	if !u.isDataType() { // use counter
 		n := copy(g.parityShards[0:cap(g.parityShards)], u)
 		g.parityShards = g.parityShards[:n]
 		skip = true
@@ -90,7 +87,7 @@ func (g *group) Do1(u Pack) (rec, skip bool) {
 	return rec, skip
 }
 
-func (g *group) Read(b Pack) (int, error) {
+func (g *group_old) Read(b Pack) (int, error) {
 	if len(g.lossShard) == 0 {
 		return 0, nil
 	} else {
@@ -104,15 +101,15 @@ func (g *group) Read(b Pack) (int, error) {
 	}
 }
 
-func (g *group) reset() {
+func (g *group_old) reset() {
 	g.finied = false
-	memset.Memset(g.parityShards, 0)
-	memset.Memset(g.lossShard, 0)
+	clear(g.parityShards)
+	clear(g.lossShard)
 	g.parityShards = g.parityShards[:0]
 	g.lossShard = g.lossShard[:0]
 }
 
-func (g *group) grow(delta int) {
+func (g *group_old) grow(delta int) {
 	delta = delta - delta%128 + 128
 	n := delta + cap(g.lossShard)
 
