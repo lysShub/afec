@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestXor(t *testing.T) {
+func Test_xor(t *testing.T) {
 
 	var group = make([][]byte, 3)
 	group[0] = []byte{1, 2, 3, 4, 5}
@@ -35,7 +35,60 @@ func TestXor(t *testing.T) {
 
 }
 
-func TestSwap(t *testing.T) {
+func Test_cpyclr(t *testing.T) {
+	var gen = func(len int, cap int) []byte {
+		b := make([]byte, len, len+cap)
+		for i := 0; i < len; i++ {
+			b[i] = 1
+		}
+		return b
+	}
+
+	var suits = []struct {
+		src, dst []byte
+	}{
+		{
+			src: []byte{1, 2, 3},
+			dst: []byte{1, 1, 1},
+		},
+		{
+			src: []byte{1, 2, 3},
+			dst: []byte{1, 1},
+		},
+		{
+			src: []byte{1, 2},
+			dst: []byte{1, 1, 1},
+		},
+		{
+			src: []byte{1, 2, 3},
+			dst: gen(2, 1),
+		},
+		{
+			src: []byte{1, 2, 3},
+			dst: gen(1, 1),
+		},
+		{
+			src: []byte{1, 2, 3},
+			dst: gen(1, 4),
+		},
+		{
+			src: []byte{1, 2, 3},
+			dst: gen(0, 5),
+		},
+		{
+			src: []byte{1, 2, 3},
+			dst: gen(4, 1),
+		},
+	}
+
+	for _, suit := range suits {
+		dst := cpyclr(suit.src, suit.dst)
+		require.Equal(t, suit.src, dst)
+		require.True(t, isEmpty(dst[len(dst):cap(dst)]))
+	}
+}
+
+func Test_swap(t *testing.T) {
 	{
 		var a = []byte{1, 2, 3}
 		var b = []byte{1, 1, 1, 1}

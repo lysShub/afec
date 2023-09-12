@@ -5,22 +5,20 @@ import (
 )
 
 // xor a[i] = a[i] xor b[i]
-//
-// if len(a) != len(b), by len(b); so a maybe alloc new memory.
 func xor(a, b []byte) []byte {
-	if len(a) < len(b) {
-		if cap(a) < len(b) {
-			tmp := make([]byte, cap(b))
-			copy(tmp, a)
-			a = tmp[:len(b)]
-		} else {
-			clear(a[len(a):len(b)])
-			a = a[:len(b)]
-		}
+	n := max(len(a), len(b))
+	if cap(a) < len(b) {
+		tmp := make([]byte, n)
+		copy(tmp, a)
+		a = tmp
 	}
 
-	rawxor(a, b)
-	return a
+	if debug && !isEmpty(a[len(a):n]) {
+		panic(fmt.Sprintf("expect zero: % X", a[len(a):n]))
+	}
+
+	rawxor(a[:n], b[:n])
+	return a[:n]
 }
 
 // rawxor a[i] = a[i] ^ b[i]
@@ -69,16 +67,24 @@ func rawswap(a, b []byte) {
 	rawxor(a, b)
 }
 
-// cpyclr  copy src to dst
+// cpyclr  copy src to dst and clear dst't tail
 func cpyclr(src, dst []byte) []byte {
-	n := len(src)
-	if cap(dst) < n {
-		dst = make([]byte, cap(src))
-	} else if len(dst) > n {
-		clear(dst[n:])
+	if cap(dst) < len(src) {
+		dst = make([]byte, len(src))
+	} else {
+		dst = clrtail(dst, len(src))
 	}
-	copy(dst[:n], src)
-	return dst[:n]
+
+	copy(dst, src)
+
+	return dst
+}
+
+func clrtail(b []byte, n int) []byte {
+	if n < len(b) {
+		clear(b[n:])
+	}
+	return b[:n]
 }
 
 func grow(p []byte, to int) []byte {

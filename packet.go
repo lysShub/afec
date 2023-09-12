@@ -92,9 +92,3 @@ func (p Pack) isDataType() bool {
 	_ = p[HdrSize]
 	return p[len(p)-1]&0b01000000 != 0
 }
-
-func (p Pack) grow(to int) Pack {
-	tmp := make([]byte, to)
-	copy(tmp, p)
-	return Pack(tmp)
-}

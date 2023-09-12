@@ -5,15 +5,6 @@ import (
 	"io"
 )
 
-// require 256%rgroups == 0
-const rgroups = uint8(4)
-
-func init() {
-	if rgroups > 127 || 256%uint16(rgroups) != 0 {
-		panic("invalid rgroups")
-	}
-}
-
 type recv struct {
 	*afec
 
@@ -38,6 +29,7 @@ func newRecv(a *afec, rgs uint8) recv {
 
 func (r *recv) Read(b []byte) (n int, err error) {
 	if r.directReadIdx > 0 {
+		r.directReadIdx = -1
 
 		// 初始化组
 		g := &r.groups[r.directReadIdx]
@@ -46,13 +38,15 @@ func (r *recv) Read(b []byte) (n int, err error) {
 		g.recvLen = 1
 
 		if g.restore.isDataType() {
-			r.directReadIdx = -1
-			g.dataLen = 1
 			return g.readDirect(b)
 		}
 	}
 
 	var p Pack = b[: len(b)+HdrSize : len(b)+HdrSize]
+
+	if debug && !isEmpty(p[len(b):]) {
+		panic(fmt.Sprintf("expect zero: % X", p[len(b):]))
+	}
 
 	var maxLen int
 	for {
@@ -66,25 +60,31 @@ func (r *recv) Read(b []byte) (n int, err error) {
 			return 0, fmt.Errorf("invalid pack: % X", p)
 		}
 		gidx := p.gid()
-		g := &r.groups[gidx%rgroups]
+		g := &r.groups[gidx%r.rgs]
 
 		if g.groupIdx == gidx {
-			if g.recvLen > g.groupLen { // 可以取等
+			if g.recvLen > g.groupLen {
 				continue
+			} else {
+				g.restore = xor(g.restore, p)
 			}
-
-			g.restore = xor(g.restore, p)
 		} else {
-			if g.dataLen != g.groupLen {
-				if g.recvLen == g.groupLen &&
-					g.dataLen+1 == g.groupLen {
 
-					// 恢复丢失数据包，此时p可能是任意类型数据包
-					r.directReadIdx = int8(gidx % rgroups)
-					clear(p[n:max(n, maxLen)])
-					return g.reconstruct(p)
-				} else {
-					r.lossCnt.Add(uint32(g.groupLen - g.dataLen))
+			if g.recvLen+1 == g.groupLen {
+				// 恢复丢失数据包，此时p可能是任意类型数据包
+
+				r.directReadIdx = int8(gidx % r.rgs)
+
+				clear(p[n:max(n, maxLen)])
+				return g.reconstruct(p)
+
+			} else if g.recvLen+1 < g.groupLen {
+				// 丟包太多，不能恢复的组
+
+				r.lossCnt.Add(uint32(g.groupLen - g.recvLen))
+
+				if debug && g.groupLen <= g.recvLen {
+					panic(fmt.Sprintf("groupLen %d recvLen %d", g.groupLen, g.recvLen))
 				}
 			}
 
@@ -93,19 +93,14 @@ func (r *recv) Read(b []byte) (n int, err error) {
 			g.groupLen = p.glen()
 			g.groupIdx = gidx
 			g.recvLen = 0
-			g.dataLen = 0
 		}
 
 		g.recvLen += 1
 		if p.isDataType() {
-			g.dataLen += 1
-
 			n = len(p) - HdrSize
 
 			// 确保 p[n:] 的数据为 0
-			if maxLen > n {
-				clear(p[n:maxLen])
-			}
+			clear(p[n:max(n, maxLen)])
 
 			return n, nil
 		}
@@ -116,7 +111,6 @@ type rgroup struct {
 	groupIdx uint8
 	groupLen uint8
 	recvLen  uint8
-	dataLen  uint8
 
 	restore Pack
 }
@@ -136,8 +130,7 @@ func (g *rgroup) reconstruct(p Pack) (n int, err error) {
 			}
 
 			rawswap(p, g.restore)
-			clear(p[n:])
-			p = p[:n]
+			p = clrtail(p, n)
 		} else {
 			n = len(p)
 			p = p[:m]
@@ -147,8 +140,7 @@ func (g *rgroup) reconstruct(p Pack) (n int, err error) {
 			}
 
 			rawswap(p, g.restore)
-			clear(g.restore[n:])
-			g.restore = g.restore[:n]
+			g.restore = clrtail(g.restore, n)
 		}
 	}
 
@@ -158,10 +150,10 @@ func (g *rgroup) reconstruct(p Pack) (n int, err error) {
 			break
 		}
 	}
-	p = p[:n-HdrSize+1]
-
+	p = p[:n+1]
 	p.clearTail()
-	return len(p), nil
+
+	return len(p) - HdrSize, nil
 }
 
 func (g *rgroup) readDirect(b []byte) (n int, err error) {
