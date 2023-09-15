@@ -63,13 +63,44 @@ func Test_Base(t *testing.T) {
 				{1}, {2}, {3},
 				{0, 0, 0, 0},
 			},
+			delay: []time.Duration{time.Minute},
 			recv: [][]byte{
 				{1}, {2}, {3},
 				{0, 0, 0},
 				{0, 0, 0, 0},
 			},
-			delay: []time.Duration{time.Minute},
-			msg:   "test-reconstruct-case1",
+			msg: "test-reconstruct-case1",
+		},
+		{
+			send: [][]byte{
+				{0, 0, 0},
+				{1}, {2}, {3},
+				{0, 0, 0, 0},
+			},
+			delay: []time.Duration{time.Minute, 0, time.Minute},
+			recv: [][]byte{
+				{2}, {3},
+				{0, 0, 0},
+				{0, 0, 0, 0},
+			},
+			msg: "test-reconstruct-case2",
+		},
+		{
+			send: [][]byte{
+				{0, 0, 0},
+				{1}, {2}, {3},
+				{0, 0, 0, 0},
+				{9},
+			},
+			delay: []time.Duration{time.Minute, 0, time.Minute},
+			recv: [][]byte{
+				{2}, {3},
+				{0, 0, 0},
+				{0, 0, 0, 0},
+				{1},
+				{9},
+			},
+			msg: "test-reconstruct-case3",
 		},
 	}
 
@@ -77,12 +108,12 @@ func Test_Base(t *testing.T) {
 	suits = append(suits, tail_zero_suits...)
 	suits = append(suits, reconstruct_case...)
 	for _, suit := range suits {
-		if suit.msg == `test-reconstruct-case1` {
-			print()
-		}
-
 		if suit.recv == nil {
 			suit.recv = suit.send
+		}
+
+		if suit.msg == `test-reconstruct-case2` {
+			print()
 		}
 
 		c, s := NewMockUDPConn(func() func() time.Duration {
@@ -99,8 +130,8 @@ func Test_Base(t *testing.T) {
 		go func() { // sender
 			conn := NewAfec(c)
 			for _, p := range suit.send {
-				_, err := conn.Write(p)
-				require.NoError(t, err)
+				_, err := conn.Write(gcap(p))
+				require.NoError(t, err, suit.msg)
 			}
 		}()
 
@@ -111,10 +142,16 @@ func Test_Base(t *testing.T) {
 			for _, r := range suit.recv {
 				b = b[:1500]
 				n, err := conn.Read(b)
-				require.NoError(t, err)
-				require.Equal(t, b[:n], r)
-				require.True(t, isEmpty(b[n:cap(b)]))
+				require.NoError(t, err, suit.msg)
+				require.Equal(t, b[:n], r, suit.msg)
+				require.True(t, isEmpty(b[n:cap(b)]), suit.msg)
 			}
 		}
 	}
+}
+
+func gcap(b []byte) []byte {
+	tmp := make([]byte, len(b), len(b)+HdrSize)
+	copy(tmp, b)
+	return tmp
 }

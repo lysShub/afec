@@ -11,7 +11,7 @@ type send struct {
 	dataBlocks, parityBlocks uint8
 	sendLen                  uint8
 
-	parityBlock Pack
+	restore Pack
 }
 
 func newSend(a *afec) send {
@@ -27,7 +27,7 @@ func (s *send) nextGroup(dataBlocks, parityBlocks uint8) {
 	s.groupIdx++
 	s.dataBlocks, s.parityBlocks = dataBlocks, parityBlocks
 	s.sendLen = 0
-	s.parityBlock = s.parityBlock[:0]
+	s.restore = s.restore[:0]
 }
 
 func (s *send) tail() bool { return s.sendLen >= s.dataBlocks }
@@ -45,7 +45,7 @@ func (s *send) Write(b []byte) (n int, err error) {
 		p.setGlen(s.dataBlocks)
 		p.setDataType()
 		if s.parityBlocks > 0 {
-			s.parityBlock = xor(s.parityBlock, p)
+			s.restore = xor(s.restore, p)
 		}
 		s.sendLen++
 	}
@@ -57,16 +57,18 @@ func (s *send) Write(b []byte) (n int, err error) {
 
 	if s.tail() {
 		if s.parityBlocks > 0 {
-			s.parityBlock.setGid(s.groupIdx)
-			s.parityBlock.setPL(pl)
-			s.parityBlock.setGlen(s.dataBlocks)
-			s.parityBlock.setParityType()
+			s.restore.setGid(s.groupIdx)
+			s.restore.setPL(pl)
+			s.restore.setGlen(s.dataBlocks)
+			s.restore.setParityType()
 			for i := uint8(0); i < s.parityBlocks; i++ {
-				n, err = s.rawConn.Write(s.parityBlock)
+				n, err = s.rawConn.Write(s.restore)
 				if err != nil {
 					return 0, err
 				}
 			}
+
+			clear(s.restore)
 		}
 
 		s.nextGroup(s.fec(pl))

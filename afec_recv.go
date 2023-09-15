@@ -8,7 +8,8 @@ import (
 type recv struct {
 	*afec
 
-	rgs           uint8
+	rgs uint8
+
 	groups        []rgroup
 	directReadIdx int8 // if >=0 valid
 }
@@ -28,16 +29,27 @@ func newRecv(a *afec, rgs uint8) recv {
 }
 
 func (r *recv) Read(b []byte) (n int, err error) {
+	if debug {
+		defer func() {
+			if !isEmpty(b[n:cap(b)]) {
+				panic(fmt.Sprintf("expect zero: % X", b[n:cap(b)]))
+			}
+		}()
+	}
+
 	if r.directReadIdx > 0 {
+		g := &r.groups[r.directReadIdx]
 		r.directReadIdx = -1
 
 		// 初始化组
-		g := &r.groups[r.directReadIdx]
-		g.groupLen = g.restore.glen()
-		g.groupIdx = g.restore.gid()
+		g.groupLen = g.restorer.glen()
+		g.groupIdx = g.restorer.gid()
 		g.recvLen = 1
+		g.dataLen = 0
 
-		if g.restore.isDataType() {
+		if g.restorer.isDataType() {
+			g.dataLen = 1
+
 			return g.readDirect(b)
 		}
 	}
@@ -63,22 +75,22 @@ func (r *recv) Read(b []byte) (n int, err error) {
 		g := &r.groups[gidx%r.rgs]
 
 		if g.groupIdx == gidx {
-			if g.recvLen > g.groupLen {
+			if g.completable() {
 				continue
 			} else {
-				g.restore = xor(g.restore, p)
+				g.restorer = xor(g.restorer, p)
 			}
 		} else {
 
-			if g.recvLen+1 == g.groupLen {
+			if g.restoreable() {
 				// 恢复丢失数据包，此时p可能是任意类型数据包
 
 				r.directReadIdx = int8(gidx % r.rgs)
 
 				clear(p[n:max(n, maxLen)])
-				return g.reconstruct(p)
+				return g.restores(p)
 
-			} else if g.recvLen+1 < g.groupLen {
+			} else if g.destroyed() {
 				// 丟包太多，不能恢复的组
 
 				r.lossCnt.Add(uint32(g.groupLen - g.recvLen))
@@ -89,14 +101,16 @@ func (r *recv) Read(b []byte) (n int, err error) {
 			}
 
 			// 组的第一个包，需要设置g.restore，并初始化参数
-			g.restore = cpyclr(p, g.restore)
+			g.restorer = cpyclr(p, g.restorer)
 			g.groupLen = p.glen()
 			g.groupIdx = gidx
 			g.recvLen = 0
+			g.dataLen = 0
 		}
 
 		g.recvLen += 1
 		if p.isDataType() {
+			g.dataLen += 1
 			n = len(p) - HdrSize
 
 			// 确保 p[n:] 的数据为 0
@@ -111,25 +125,30 @@ type rgroup struct {
 	groupIdx uint8
 	groupLen uint8
 	recvLen  uint8
+	dataLen  uint8
 
-	restore Pack
+	restorer Pack
 }
 
-// reconstruct 恢复丢失的包
-func (g *rgroup) reconstruct(p Pack) (n int, err error) {
-	if cap(p) < len(g.restore) {
+func (g *rgroup) completable() bool { return g.dataLen == g.recvLen || g.recvLen > g.groupLen }
+func (g *rgroup) restoreable() bool { return g.recvLen == g.groupLen && g.dataLen+1 == g.groupLen }
+func (g *rgroup) destroyed() bool   { return g.recvLen < g.groupLen }
+
+// restores 恢复丢失的包
+func (g *rgroup) restores(p Pack) (n int, err error) {
+	if cap(p) < len(g.restorer) {
 		return 0, io.ErrShortBuffer
 	} else {
-		m := max(len(p), len(g.restore))
-		if len(g.restore) < m {
-			n = len(g.restore)
-			g.restore = grow(g.restore, m)
+		m := max(len(p), len(g.restorer))
+		if len(g.restorer) < m {
+			n = len(g.restorer)
+			g.restorer = grow(g.restorer, m)
 
-			if debug && !isEmpty(g.restore[n:m]) {
-				panic(fmt.Sprintf("expect zero: % X", g.restore[n:m]))
+			if debug && !isEmpty(g.restorer[n:m]) {
+				panic(fmt.Sprintf("expect zero: % X", g.restorer[n:m]))
 			}
 
-			rawswap(p, g.restore)
+			rawswap(p, g.restorer)
 			p = clrtail(p, n)
 		} else {
 			n = len(p)
@@ -139,8 +158,8 @@ func (g *rgroup) reconstruct(p Pack) (n int, err error) {
 				panic(fmt.Sprintf("expect zero: % X", p[n:m]))
 			}
 
-			rawswap(p, g.restore)
-			g.restore = clrtail(g.restore, n)
+			rawswap(p, g.restorer)
+			g.restorer = clrtail(g.restorer, n)
 		}
 	}
 
@@ -157,10 +176,10 @@ func (g *rgroup) reconstruct(p Pack) (n int, err error) {
 }
 
 func (g *rgroup) readDirect(b []byte) (n int, err error) {
-	n = len(g.restore) - HdrSize
+	n = len(g.restorer) - HdrSize
 	if len(b) < n {
 		return 0, io.ErrShortBuffer
 	}
 
-	return copy(b[:n], g.restore[:n]), nil
+	return copy(b[:n], g.restorer[:n]), nil
 }

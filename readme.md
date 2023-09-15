@@ -1,7 +1,8 @@
 
-可以在通过一个数组来实现
-	按照Packet距离，而不是group距离，来进行丢包判别与恢复。
-
+可以在通过一个int数组来实现：按照Packet距离（P-距离），而不是group距离，来进行丢包判别与恢复。
+但判别距离并不一定等于Packet距离，而是min(Packet距离，group长度)
+Packet距离对于parity-block也应该生效
+需要确保groups能包含P-距离内所有的Packet，可以直接分配P-距离个groups，group里面的restore没有长度，使得代价极小
 
 
 
